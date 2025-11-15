@@ -2,11 +2,11 @@
 
 ## 🎯 Abstraksi Proyek
 
-[cite_start]Proyek ini bertujuan untuk menganalisis **efisiensi dan skalabilitas** algoritma **Eliminasi Gauss-Jordan (GJE)** yang diimplementasikan secara sekuensial (CPU) dan paralel (GPU melalui **CUDA**)[cite: 1, 2].
+Proyek ini bertujuan untuk menganalisis **efisiensi dan skalabilitas** algoritma **Eliminasi Gauss-Jordan (GJE)** yang diimplementasikan secara sekuensial (CPU) dan paralel (GPU melalui **CUDA**).
 
 Analisis berfokus pada:
-1.  [cite_start]Perbandingan Waktu Eksekusi dan perhitungan **Speedup**[cite: 69, 206].
-2.  [cite_start]Evaluasi **Stabilitas Numerik** (Residual) untuk SPL skala besar[cite: 36, 193].
+1.  Perbandingan Waktu Eksekusi dan perhitungan **Speedup**.
+2.  Evaluasi **Stabilitas Numerik** (Residual) untuk SPL skala besar.
 
 ---
 
@@ -21,9 +21,9 @@ Analisis berfokus pada:
 
 | No. | Perangkat Lunak | Tujuan Utama |
 | :---: | :--- | :--- |
-| 1 | **NVIDIA CUDA Toolkit (v13.0)** | [cite_start]Kompilasi program paralel (`nvcc`)[cite: 60, 159]. |
+| 1 | **NVIDIA CUDA Toolkit (v13.0)** | [cite_start]Kompilasi program paralel (`nvcc`). [cite: 60, 159] |
 | 2 | **Microsoft Visual Studio (atau Build Tools)** | Menyediakan *toolchain* dan *linker* Windows. |
-| 3 | **C++ Compiler (g++)** | [cite_start]Kompilasi program sekuensial (`g++`)[cite: 197]. |
+| 3 | **C++ Compiler (g++)** | [cite_start]Kompilasi program sekuensial (`g++`). [cite: 159] |
 | 4 | **Visual Studio Code (VS Code)** | Lingkungan pengembangan utama. |
 
 ### 3. Struktur Direktori
@@ -43,9 +43,9 @@ Pastikan file-file berikut berada di dalam folder utama proyek (`Pemrosesan Para
 Eksekusi harus dilakukan dari terminal yang telah memuat variabel lingkungan yang benar (Visual Studio build environment).
 
 1.  **Buka** **Visual Studio Developer Command Prompt** atau **Terminal VS Code**.
-2.  **Arahkan Direktori** ke folder proyek:
+2.  **Arahkan Direktori** ke folder proyek Anda (Ganti `/path/to/project/` dengan lokasi folder proyek Anda yang sebenarnya):
     ```bash
-    cd "C:\Users\ariyo\Documents\Vs Code\Pemrosesan Paralel"
+    cd /path/to/project/Pemrosesan Paralel
     ```
 
 ### 2. Pelaksanaan Uji
