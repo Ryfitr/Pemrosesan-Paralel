@@ -1,4 +1,4 @@
-# ⚙️ Pemrograman Paralel: Eliminasi Gauss-Jordan dengan Partial Pivoting (CPU vs. GPU)
+# ⚙️ Eliminasi Gauss-Jordan dengan Partial Pivoting (CPU vs. GPU)
 
 Proyek ini membandingkan kinerja algoritma **Eliminasi Gauss-Jordan** dengan **Partial Pivoting** untuk menyelesaikan sistem persamaan linear $A \times x = b$ pada dua implementasi komputasi yang berbeda: **CPU Sequential** (tradisional) dan **GPU Parallel** (menggunakan CUDA).
 
