@@ -1,82 +1,60 @@
-⚙️ Pemrosesan Paralel – Gauss-Jordan dengan Pivoting
-🧭 Deskripsi
+# ⚙️ Pemrograman Paralel: Eliminasi Gauss-Jordan dengan Partial Pivoting (CPU vs. GPU)
 
-Proyek ini membandingkan performa algoritma Gauss-Jordan Elimination pada dua implementasi berbeda:
+Proyek ini membandingkan kinerja algoritma **Eliminasi Gauss-Jordan** dengan **Partial Pivoting** untuk menyelesaikan sistem persamaan linear $A \times x = b$ pada dua implementasi komputasi yang berbeda: **CPU Sequential** (tradisional) dan **GPU Parallel** (menggunakan CUDA).
 
-💻 CPU (Sequential)
+---
 
-⚡ GPU (CUDA Parallel)
+## 📋 Deskripsi Proyek
 
-Keduanya digunakan untuk menyelesaikan sistem persamaan linear A × x = b dengan ukuran matriks besar (256×256 hingga 4096×4096).
-Versi ini sudah menggunakan Partial Pivoting agar hasil perhitungan lebih stabil dan akurat.
+Tujuan utama proyek ini adalah menganalisis **efisiensi dan _speedup_** yang ditawarkan oleh komputasi paralel GPU (khususnya untuk operasi intensif seperti eliminasi matriks) dibandingkan dengan implementasi _sequential_ CPU. Kami berfokus pada matriks berukuran besar.
 
-🧩 Struktur Proyek
-📁 CPU_Sequential.cpp     → Implementasi versi CPU (Sequential)
-📁 GPU_Parallel.cu        → Implementasi versi GPU (CUDA Parallel)
-📁 matrix_generator.cpp   → Pembuat dataset matriks & vektor x_true
-📁 RUN_PROJECT.bat        → Skrip otomatis untuk uji CPU vs GPU
-📄 .gitignore             → Mengabaikan file hasil build (.exe, .bin)
-📘 README.md              → Dokumentasi proyek
+### 🎯 Tentang Partial Pivoting
 
-🚀 Cara Menjalankan
-1️⃣ Kompilasi generator matriks
-g++ matrix_generator.cpp -O2 -o gen.exe
-
-2️⃣ Buat dataset uji
-gen.exe 256
-gen.exe 512
-gen.exe 1024
-gen.exe 2048
-gen.exe 4096
+Partial Pivoting adalah teknik untuk **meningkatkan stabilitas numerik** selama eliminasi matriks. Ini dilakukan dengan menukar baris matriks agar elemen _pivot_ $A[k][k]$ selalu memiliki **nilai absolut terbesar** di kolom yang sedang diproses.
 
 
-📦 Hasil: matrix_*.bin dan xtrue_*.bin
 
-3️⃣ Kompilasi solver CPU & GPU
-g++ CPU_Sequential.cpp -O3 -o cpu_exec.exe
-nvcc GPU_Parallel.cu -O3 -o gpu_exec.exe -allow-unsupported-compiler
+| Keuntungan Partial Pivoting |
+| :--- |
+| * Stabilitas numerik lebih baik |
+| * Mengurangi potensi _error_ pembulatan |
+| * Mencegah kegagalan saat elemen _pivot_ bernilai nol |
 
-4️⃣ Jalankan pengujian
-cpu_exec.exe 1024
-gpu_exec.exe 1024
+---
 
+## 🏗️ Struktur Proyek
 
-Atau jalankan semua ukuran otomatis:
+| File | Deskripsi |
+| :--- | :--- |
+| `CPU_Sequential.cpp` | Implementasi Eliminasi Gauss-Jordan versi **CPU Sequential** (C++). |
+| `GPU_Parallel.cu` | Implementasi Eliminasi Gauss-Jordan versi **GPU Parallel** (CUDA). |
+| `matrix_generator.cpp` | Program _helper_ untuk menghasilkan matriks uji $A$ dan vektor $b$ dengan berbagai ukuran. |
+| `RUN_PROJECT.sh` | Skrip **Bash** untuk mengotomatisasi kompilasi dan pengujian. |
+| `.gitignore` | File konfigurasi Git. |
 
-RUN_PROJECT.bat
+---
 
-📊 Contoh Hasil (rata-rata 5x pengujian)
-Ukuran Matriks	CPU (ms)	GPU (ms)	Residual
-256×256	35	5	< 1e-4
-1024×1024	700	70	< 1e-4
-4096×4096	>10 000	500	< 1e-3
+## 🔧 Teknologi yang Digunakan
 
-⏱️ Waktu aktual dapat berbeda tergantung spesifikasi perangkat keras.
+* **C++17:** Bahasa pemrograman utama.
+* **CUDA (Compute Unified Device Architecture):** Platform komputasi paralel GPU.
+* **NVIDIA CUDA Toolkit:** Diperlukan untuk kompilasi kode `.cu`.
+* **GCC/G++:** _Compiler_ standar C++ untuk Linux/Bash.
 
-🧠 Apa Itu Pivoting?
+---
 
-Pivoting adalah proses menukar baris matriks selama eliminasi Gauss-Jordan agar elemen pivot (A[k][k]) selalu memiliki nilai absolut terbesar di kolom tersebut.
+## 🚀 Cara Menjalankan (Menggunakan Bash)
 
-🎯 Tujuan Pivoting
+Pastikan Anda memiliki **NVIDIA CUDA Toolkit** dan **GCC** terpasang di sistem Anda.
 
-🔹 Meningkatkan stabilitas numerik — menghindari pembagian dengan nilai yang sangat kecil.
+### 1. Kompilasi Program
 
-🔹 Mengurangi propagasi error akibat pembulatan floating-point.
+```bash
+# Kompilasi Matrix Generator
+g++ -std=c++17 matrix_generator.cpp -o generator_exec
 
-🔹 Mencegah kegagalan eliminasi ketika elemen diagonal utama bernilai nol.
+# Kompilasi Versi CPU Sequential
+g++ -std=c++17 CPU_Sequential.cpp -o cpu_exec
 
-📘 Contoh Sederhana
-
-Tanpa pivoting:
-
-[ 0  2 | 4 ]
-[ 1  3 | 5 ]
-
-
-Pivot pertama bernilai 0 → algoritma gagal.
-Dengan pivoting → baris ditukar sehingga pivot ≠ 0 dan proses berjalan normal.
-
-💡 Kenapa Digunakan di Proyek Ini?
-
-Versi awal (tanpa pivot) memang lebih cepat, tetapi sering menghasilkan error besar pada matriks acak atau besar.
-Dengan partial pivoting, performa sedikit menurun, namun hasil jauh lebih stabil dan akurat — membuat perbandingan CPU vs GPU lebih valid secara ilmiah.
+# Kompilasi Versi GPU Parallel (membutuhkan nvcc)
+nvcc GPU_Parallel.cu -o gpu_exec
