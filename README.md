@@ -1,32 +1,28 @@
-Pemrosesan Paralel – Gauss-Jordan dengan Pivoting
-Deskripsi
+⚙️ Pemrosesan Paralel – Gauss-Jordan dengan Pivoting
+🧭 Deskripsi
 
-Proyek ini membandingkan performa algoritma eliminasi Gauss-Jordan pada dua implementasi berbeda:
+Proyek ini membandingkan performa algoritma Gauss-Jordan Elimination pada dua implementasi berbeda:
 
-CPU (sequential)
+💻 CPU (Sequential)
 
-GPU (CUDA parallel)
+⚡ GPU (CUDA Parallel)
 
-Keduanya digunakan untuk menyelesaikan sistem persamaan linear A x = b dengan ukuran matriks besar (256×256 hingga 4096×4096).
+Keduanya digunakan untuk menyelesaikan sistem persamaan linear A × x = b dengan ukuran matriks besar (256×256 hingga 4096×4096).
 Versi ini sudah menggunakan Partial Pivoting agar hasil perhitungan lebih stabil dan akurat.
 
-Struktur Proyek
-CPU_Sequential.cpp     → Implementasi versi CPU
-GPU_Parallel.cu        → Implementasi versi GPU (CUDA)
-matrix_generator.cpp   → Pembuat dataset matriks & vektor x_true
-RUN_PROJECT.bat        → Skrip otomatis untuk uji CPU vs GPU
-.gitignore             → Mengabaikan file hasil build (.exe, .bin)
-README.md              → Dokumentasi proyek
+🧩 Struktur Proyek
+📁 CPU_Sequential.cpp     → Implementasi versi CPU (Sequential)
+📁 GPU_Parallel.cu        → Implementasi versi GPU (CUDA Parallel)
+📁 matrix_generator.cpp   → Pembuat dataset matriks & vektor x_true
+📁 RUN_PROJECT.bat        → Skrip otomatis untuk uji CPU vs GPU
+📄 .gitignore             → Mengabaikan file hasil build (.exe, .bin)
+📘 README.md              → Dokumentasi proyek
 
-Cara Menjalankan
-
-Kompilasi generator matriks
-
+🚀 Cara Menjalankan
+1️⃣ Kompilasi generator matriks
 g++ matrix_generator.cpp -O2 -o gen.exe
 
-
-Buat dataset uji
-
+2️⃣ Buat dataset uji
 gen.exe 256
 gen.exe 512
 gen.exe 1024
@@ -34,16 +30,13 @@ gen.exe 2048
 gen.exe 4096
 
 
-File yang dihasilkan: matrix_*.bin dan xtrue_*.bin
+📦 Hasil: matrix_*.bin dan xtrue_*.bin
 
-Kompilasi solver CPU dan GPU
-
+3️⃣ Kompilasi solver CPU & GPU
 g++ CPU_Sequential.cpp -O3 -o cpu_exec.exe
 nvcc GPU_Parallel.cu -O3 -o gpu_exec.exe -allow-unsupported-compiler
 
-
-Jalankan pengujian
-
+4️⃣ Jalankan pengujian
 cpu_exec.exe 1024
 gpu_exec.exe 1024
 
@@ -52,27 +45,27 @@ Atau jalankan semua ukuran otomatis:
 
 RUN_PROJECT.bat
 
-Contoh Hasil (rata-rata 5 kali pengujian)
-Ukuran	CPU (ms)	GPU (ms)	Residual
-256×256	35 ms	5 ms	< 1e-4
-1024×1024	700 ms	70 ms	< 1e-4
-4096×4096	>10 s	500 ms	< 1e-3
+📊 Contoh Hasil (rata-rata 5x pengujian)
+Ukuran Matriks	CPU (ms)	GPU (ms)	Residual
+256×256	35	5	< 1e-4
+1024×1024	700	70	< 1e-4
+4096×4096	>10 000	500	< 1e-3
 
-Hasil bervariasi tergantung spesifikasi CPU dan GPU.
+⏱️ Waktu aktual dapat berbeda tergantung spesifikasi perangkat keras.
 
-Penjelasan Pivoting
+🧠 Apa Itu Pivoting?
 
-Pivoting adalah proses menukar baris matriks selama eliminasi agar elemen pivot (A[k][k]) memiliki nilai absolut terbesar di kolom yang sedang diproses.
+Pivoting adalah proses menukar baris matriks selama eliminasi Gauss-Jordan agar elemen pivot (A[k][k]) selalu memiliki nilai absolut terbesar di kolom tersebut.
 
-Tujuan Pivoting
+🎯 Tujuan Pivoting
 
-Menghindari pembagian dengan nilai sangat kecil yang bisa menyebabkan error numerik.
+🔹 Meningkatkan stabilitas numerik — menghindari pembagian dengan nilai yang sangat kecil.
 
-Meningkatkan stabilitas hasil perhitungan.
+🔹 Mengurangi propagasi error akibat pembulatan floating-point.
 
-Mencegah kegagalan eliminasi jika elemen diagonal utama bernilai nol.
+🔹 Mencegah kegagalan eliminasi ketika elemen diagonal utama bernilai nol.
 
-Contoh Sederhana
+📘 Contoh Sederhana
 
 Tanpa pivoting:
 
@@ -81,9 +74,9 @@ Tanpa pivoting:
 
 
 Pivot pertama bernilai 0 → algoritma gagal.
-Dengan pivoting, baris ditukar sehingga pivot ≠ 0 dan proses berjalan normal.
+Dengan pivoting → baris ditukar sehingga pivot ≠ 0 dan proses berjalan normal.
 
-Kenapa digunakan di proyek ini?
+💡 Kenapa Digunakan di Proyek Ini?
 
-Versi awal tanpa pivot bekerja tetapi sering menghasilkan kesalahan pada matriks besar atau acak.
-Dengan partial pivoting, performa GPU sedikit menurun tetapi hasil menjadi lebih stabil dan akurat, sehingga perbandingan CPU vs GPU menjadi valid secara ilmiah.
+Versi awal (tanpa pivot) memang lebih cepat, tetapi sering menghasilkan error besar pada matriks acak atau besar.
+Dengan partial pivoting, performa sedikit menurun, namun hasil jauh lebih stabil dan akurat — membuat perbandingan CPU vs GPU lebih valid secara ilmiah.
