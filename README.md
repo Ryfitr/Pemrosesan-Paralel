@@ -83,6 +83,7 @@ nvcc GPU_Parallel.cu -o gpu_exec -allow-unsupported-compiler
 Data ini adalah contoh hasil benchmark yang menunjukkan waktu eksekusi dalam milidetik (ms) dan faktor speedup GPU terhadap CPU.
 
 | Ukuran Matriks | CPU (ms) | Residual (≈ Akurasi) | GPU (ms)| Residual (≈ Akurasi) |
+| :--- | :--- | :--- | :--- | :--- |
 | 256×256 | ~35 | xxxxx | ~218 | xxxxx |
 | 512×512 | ~276 | xxxxx | ~500 | xxxxx |
 | 1024×1024 | xxxx | xxxxx | xxxx | xxxxx |
