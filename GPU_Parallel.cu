@@ -1,185 +1,221 @@
 #include <iostream>
 #include <fstream>
 #include <cmath>
-#include <algorithm>
 #include <iomanip>
-#include <cstdlib>
-#include <ctime>
 #include <string>
+#include <cstdio>
 #include <cuda_runtime.h>
 #include <device_launch_parameters.h>
 
 using namespace std;
 
-typedef double Scalar;
+typedef float Scalar;
 
-#define BLOCK_SIZE 256
-
+#ifndef CHECK_CUDA_ERROR
 #define CHECK_CUDA_ERROR(err) \
-    if (err != cudaSuccess) { \
-        fprintf(stderr, "CUDA error: %s at %s:%d\n", cudaGetErrorString(err), __FILE__, __LINE__); \
-        exit(EXIT_FAILURE); \
-    }
+    do { \
+        cudaError_t _e = (err); \
+        if (_e != cudaSuccess) { \
+            fprintf(stderr, "CUDA error: %s at %s:%d\n", cudaGetErrorString(_e), __FILE__, __LINE__); \
+            exit(EXIT_FAILURE); \
+        } \
+    } while (0)
+#endif
 
-// Fungsi untuk membaca matriks A|B dari file binary
-Scalar* read_matrix(int N, const string& filename) {
-    Scalar* Aug = new Scalar[N * (N + 1)];
-    ifstream file(filename, ios::binary | ios::in);
-    if (!file.is_open()) {
-        cerr << "Error: Tidak dapat membaca file " << filename << endl;
-        exit(1);
-    }
-    file.read((char*)Aug, N * (N + 1) * sizeof(Scalar));
-    file.close();
+#define THREADS_PIVOT 1024
+#define THREADS_COL   512
+
+static inline Scalar* read_matrix(int N, const string& filename) {
+    Scalar* Aug = new Scalar[(size_t)N * (N + 1)];
+    ifstream f(filename, ios::binary);
+    if (!f.is_open()) { cerr << "Error: gagal baca " << filename << endl; exit(1); }
+    f.read(reinterpret_cast<char*>(Aug), (streamsize)((size_t)N * (N + 1) * sizeof(Scalar)));
+    f.close();
     return Aug;
 }
 
-// Fungsi untuk membaca vektor X_true dari file binary
-Scalar* read_xtrue(int N, const string& filename) {
-    Scalar* X_true = new Scalar[N];
-    ifstream file(filename, ios::binary | ios::in);
-    if (!file.is_open()) {
-        cerr << "Error: Tidak dapat membaca file " << filename << endl;
-        exit(1);
-    }
-    file.read((char*)X_true, N * sizeof(Scalar));
-    file.close();
-    return X_true;
+static inline Scalar* read_xtrue(int N, const string& filename) {
+    Scalar* X = new Scalar[N];
+    ifstream f(filename, ios::binary);
+    if (!f.is_open()) { cerr << "Error: gagal baca " << filename << endl; exit(1); }
+    f.read(reinterpret_cast<char*>(X), (streamsize)((size_t)N * sizeof(Scalar)));
+    f.close();
+    return X;
 }
 
-// Fungsi untuk menghitung Residual (||X_calc - X_true||)
-Scalar calculate_residual(Scalar* final_Aug, Scalar* X_true, int N) {
-    Scalar residual_norm = 0.0;
+static inline Scalar calc_residual(const Scalar* Aug, const Scalar* Xtrue, int N) {
+    const long long stride = (long long)(N + 1);
+    long double acc = 0.0L;
     for (int i = 0; i < N; ++i) {
-        Scalar error = final_Aug[i * (N + 1) + N] - X_true[i];
-        residual_norm += error * error;
+        long double e = (long double)Aug[(long long)i * stride + N] - (long double)Xtrue[i];
+        acc += e * e;
     }
-    return std::sqrt(residual_norm);
+    return (Scalar)std::sqrt((double)acc);
 }
 
-__global__ void elimination_kernel(Scalar* d_Aug, int N, int k) {
-    int row = blockIdx.x * blockDim.x + threadIdx.x;
-    if (row >= N || row == k) return;
-    
-    Scalar factor = d_Aug[row * (N + 1) + k];
-    
-    // ELIMINATE ALL COLUMNS from 0 to N
-    for (int col = 0; col < N + 1; ++col) {
-        d_Aug[row * (N + 1) + col] -= factor * d_Aug[k * (N + 1) + col];
+__global__ void find_pivot_kernel(const Scalar* __restrict__ d_Aug, int N, int k, int* __restrict__ d_pivot_idx, Scalar eps) {
+    extern __shared__ unsigned char smem[];
+    Scalar* s_val = (Scalar*)smem;
+    int*    s_idx = (int*)&s_val[blockDim.x];
+
+    const long long pitch = (long long)(N + 1);
+    Scalar best = 0.0;
+    int    best_i = -1;
+
+    for (int i = k + threadIdx.x; i < N; i += blockDim.x) {
+        Scalar v = fabsf(d_Aug[(long long)i * pitch + k]);
+        if (v > best) { best = v; best_i = i; }
+    }
+    s_val[threadIdx.x] = best;
+    s_idx[threadIdx.x] = best_i;
+    __syncthreads();
+
+    for (int stride = blockDim.x >> 1; stride > 0; stride >>= 1) {
+        if (threadIdx.x < stride) {
+            if (s_val[threadIdx.x + stride] > s_val[threadIdx.x]) {
+                s_val[threadIdx.x] = s_val[threadIdx.x + stride];
+                s_idx[threadIdx.x] = s_idx[threadIdx.x + stride];
+            }
+        }
+        __syncthreads();
+    }
+
+    if (threadIdx.x == 0) {
+        *d_pivot_idx = (s_val[0] < eps) ? -1 : s_idx[0];
     }
 }
 
-void gauss_jordan_gpu(Scalar* h_Aug, int N) {
-    Scalar *d_Aug;
-    size_t size = N * (N + 1) * sizeof(Scalar);
-    
-    CHECK_CUDA_ERROR(cudaMalloc((void**)&d_Aug, size));
+__global__ void swap_rows_kernel(Scalar* __restrict__ d_Aug, int N, int r1, int r2) {
+    if (r1 == r2) return;
+    const long long pitch = (long long)(N + 1);
+    const long long b1 = (long long)r1 * pitch;
+    const long long b2 = (long long)r2 * pitch;
+    for (int j = threadIdx.x; j <= N; j += blockDim.x) {
+        Scalar tmp = d_Aug[b1 + j];
+        d_Aug[b1 + j] = d_Aug[b2 + j];
+        d_Aug[b2 + j] = tmp;
+    }
+}
 
-    int blockSize = BLOCK_SIZE;
-    int numBlocks = (N + blockSize - 1) / blockSize;
-    
+__global__ void normalize_pivot_row_kernel(Scalar* __restrict__ d_Aug, int N, int k, Scalar pivot_min){
+    const long long pitch = (long long)(N + 1);
+    const long long base  = (long long)k * pitch;
+    Scalar pivot = d_Aug[base + k];
+    if (fabsf(pivot) < pivot_min) return;
+    for (int j = k + threadIdx.x; j <= N; j += blockDim.x) d_Aug[base + j] /= pivot;
+}
+
+__global__ void eliminate_rows_kernel(Scalar* __restrict__ d_Aug, int N, int k) {
+    int row = blockIdx.x;
+    if (row == k || row >= N) return;
+    const long long pitch   = (long long)(N + 1);
+    const long long baseRow = (long long)row * pitch;
+    const long long baseK   = (long long)k   * pitch;
+
+    __shared__ Scalar factor;
+    if (threadIdx.x == 0) factor = d_Aug[baseRow + k];
+    __syncthreads();
+
+    for (int j = k + threadIdx.x; j <= N; j += blockDim.x) {
+        d_Aug[baseRow + j] -= factor * d_Aug[baseK + j];
+    }
+}
+
+static inline bool gauss_jordan_gpu(Scalar* d_Aug, int N, cudaStream_t stream = 0) {
+    int* d_pivot = nullptr;
+    CHECK_CUDA_ERROR(cudaMalloc((void**)&d_pivot, sizeof(int)));
+
+    dim3 gridRow(N), blockCol(THREADS_COL);
+
     for (int k = 0; k < N; ++k) {
-        // === SEMUA PIVOTING & NORMALIZATION DI HOST ===
-        int pivot_row = k;
-        Scalar max_val = std::abs(h_Aug[k * (N + 1) + k]);
-        for (int i = k + 1; i < N; ++i) {
-            if (std::abs(h_Aug[i * (N + 1) + k]) > max_val) {
-                max_val = std::abs(h_Aug[i * (N + 1) + k]);
-                pivot_row = i;
-            }
-        }
-
-        if (pivot_row != k) {
-            for (int j = 0; j < N + 1; ++j) {
-                Scalar temp = h_Aug[k * (N + 1) + j];
-                h_Aug[k * (N + 1) + j] = h_Aug[pivot_row * (N + 1) + j];
-                h_Aug[pivot_row * (N + 1) + j] = temp;
-            }
-        }
-
-        Scalar pivot_val = h_Aug[k * (N + 1) + k];
-        if (std::abs(pivot_val) < 1.0e-12) {
-            continue;
-        }
-
-        // Normalize pivot row
-        for (int j = k; j < N + 1; ++j) {
-            h_Aug[k * (N + 1) + j] /= pivot_val;
-        }
-
-        // === COPY KE DEVICE UNTUK ELIMINATION ===
-        CHECK_CUDA_ERROR(cudaMemcpy(d_Aug, h_Aug, size, cudaMemcpyHostToDevice));
-        CHECK_CUDA_ERROR(cudaDeviceSynchronize());
-        
-        // === ELIMINATION DI GPU ===
-        elimination_kernel<<<numBlocks, blockSize>>>(d_Aug, N, k);
+        size_t smem = (size_t)THREADS_PIVOT * (sizeof(Scalar) + sizeof(int));
+        find_pivot_kernel<<<1, THREADS_PIVOT, smem, stream>>>(d_Aug, N, k, d_pivot, (Scalar)1.0e-6f);
         CHECK_CUDA_ERROR(cudaGetLastError());
-        CHECK_CUDA_ERROR(cudaDeviceSynchronize());
-        
-        // === COPY BACK KE HOST ===
-        CHECK_CUDA_ERROR(cudaMemcpy(h_Aug, d_Aug, size, cudaMemcpyDeviceToHost));
+
+        int h_pivot = -1;
+        CHECK_CUDA_ERROR(cudaMemcpyAsync(&h_pivot, d_pivot, sizeof(int), cudaMemcpyDeviceToHost, stream));
+        CHECK_CUDA_ERROR(cudaStreamSynchronize(stream));
+        if (h_pivot < 0) { cudaFree(d_pivot); return false; }
+
+        swap_rows_kernel<<<1, THREADS_COL, 0, stream>>>(d_Aug, N, k, h_pivot);
+        CHECK_CUDA_ERROR(cudaGetLastError());
+
+        normalize_pivot_row_kernel<<<1, THREADS_COL, 0, stream>>>(d_Aug, N, k, (Scalar)1.0e-20f);
+        CHECK_CUDA_ERROR(cudaGetLastError());
+
+        eliminate_rows_kernel<<<gridRow, blockCol, 0, stream>>>(d_Aug, N, k);
+        CHECK_CUDA_ERROR(cudaGetLastError());
     }
-    
-    CHECK_CUDA_ERROR(cudaFree(d_Aug));
+
+    CHECK_CUDA_ERROR(cudaFree(d_pivot));
+    return true;
 }
 
-int main(int argc, char *argv[]) {
+
+int main(int argc, char* argv[]) {
     if (argc < 2) {
-        cerr << "Usage: " << argv[0] << " <matrix_size_N>" << endl;
+        cerr << "Usage: " << argv[0] << " <N>\n";
         return 1;
     }
-
     int N = atoi(argv[1]);
-    int num_runs = 5;
-    double total_time = 0.0;
-    Scalar final_residual = 0.0;
 
-    string xtrue_filename = "xtrue_" + to_string(N) + ".bin";
-    Scalar* X_true = read_xtrue(N, xtrue_filename);
+    const string mx = "matrix_" + to_string(N) + ".bin";
+    const string xt = "xtrue_"  + to_string(N) + ".bin";
 
-    for (int run = 0; run < num_runs; ++run) {
-        string matrix_filename = "matrix_" + to_string(N) + ".bin";
-        Scalar* h_Aug_final = read_matrix(N, matrix_filename);
-        
+    Scalar* Xtrue = read_xtrue(N, xt);
+    Scalar* d_Aug = nullptr;
+    size_t bytesAug = (size_t)N * (N + 1) * sizeof(Scalar);
+    CHECK_CUDA_ERROR(cudaMalloc((void**)&d_Aug, bytesAug));
+
+    int runs = 5;
+    double total_ms = 0.0;
+    Scalar last_res = 0.0;
+
+    for (int r = 0; r < runs; ++r) {
+        Scalar* h_Aug = read_matrix(N, mx);
+        CHECK_CUDA_ERROR(cudaMemcpy(d_Aug, h_Aug, bytesAug, cudaMemcpyHostToDevice));
+
         cudaEvent_t start, stop;
-        cudaEventCreate(&start);
-        cudaEventCreate(&stop);
+        CHECK_CUDA_ERROR(cudaEventCreate(&start));
+        CHECK_CUDA_ERROR(cudaEventCreate(&stop));
+        CHECK_CUDA_ERROR(cudaEventRecord(start));
 
-        cudaEventRecord(start);
+        bool ok = gauss_jordan_gpu(d_Aug, N);
+        if (!ok) cerr << "Peringatan: singular/ill-conditioned terdeteksi.\n";
 
-        gauss_jordan_gpu(h_Aug_final, N);
+        CHECK_CUDA_ERROR(cudaEventRecord(stop));
+        CHECK_CUDA_ERROR(cudaEventSynchronize(stop));
+        float ms = 0.0f;
+        CHECK_CUDA_ERROR(cudaEventElapsedTime(&ms, start, stop));
+        total_ms += ms;
 
-        cudaEventRecord(stop);
-        cudaEventSynchronize(stop);
+        CHECK_CUDA_ERROR(cudaMemcpy(h_Aug, d_Aug, bytesAug, cudaMemcpyDeviceToHost));
+        last_res = calc_residual(h_Aug, Xtrue, N);
 
-        float milliseconds = 0;
-        cudaEventElapsedTime(&milliseconds, start, stop);
-        total_time += milliseconds;
-
-        final_residual = calculate_residual(h_Aug_final, X_true, N);
-        
-        if (N == 256 && run == 0) { 
-            cout << "\n--- HASIL VEKTOR SOLUSI X (GPU N=256) ---" << endl;
+        if (N == 256 && r == 0) {
+            cout << "\n--- HASIL VEKTOR SOLUSI X (GPU N=256) ---\n";
+            cout.setf(ios::fixed); cout << setprecision(12);
             for (int i = 0; i < N; ++i) {
                 if (i < 5 || i >= N - 5) {
-                    cout << "X[" << i << "] = " << fixed << setprecision(12) << h_Aug_final[i * (N + 1) + N] << endl;
+                    cout << "X[" << i << "] = " << h_Aug[(size_t)i*(N+1) + N] << "\n";
                 } else if (i == 5) {
-                    cout << "..." << endl; 
+                    cout << "...\n";
                 }
             }
-            cout << "Residual Actual: " << fixed << setprecision(12) << final_residual << endl;
-            cout << "---------------------------------------" << endl;
+            cout << "Residual Actual: " << last_res << "\n";
+            cout << "---------------------------------------\n";
         }
 
-        delete[] h_Aug_final;
-        
-        cudaEventDestroy(start);
-        cudaEventDestroy(stop);
+        delete[] h_Aug;
+        CHECK_CUDA_ERROR(cudaEventDestroy(start));
+        CHECK_CUDA_ERROR(cudaEventDestroy(stop));
     }
 
-    delete[] X_true;
-    double avg_time = total_time / num_runs;
-    cout << fixed << setprecision(4) << N << "," << avg_time << "," << final_residual << endl;
+    CHECK_CUDA_ERROR(cudaFree(d_Aug));
+    delete[] Xtrue;
 
+    double avg = total_ms / runs;
+    cout.setf(ios::fixed); cout << setprecision(4);
+    cout << N << "," << avg << "," << last_res << "\n";
     return 0;
 }
