@@ -57,4 +57,34 @@ g++ -std=c++17 matrix_generator.cpp -o generator_exec
 g++ -std=c++17 CPU_Sequential.cpp -o cpu_exec
 
 # Kompilasi Versi GPU Parallel (membutuhkan nvcc)
-nvcc GPU_Parallel.cu -o gpu_exec
+nvcc GPU_Parallel.cu -o gpu_exec -allow-unsupported-compiler
+```
+
+### 2. Generate Matriks Uji
+
+```bash
+# Format: ./generator_exec <Ukuran_N>
+
+./generator_exec 256
+./generator_exec 512
+./generator_exec 1024
+./generator_exec 2048
+./generator_exec 4096
+```
+
+### 2. Jalankan Test
+
+```bash
+./RUN_PROJECT.bat
+```
+
+## 📊 Hasil Performance (Contoh Benchmark)
+
+Data ini adalah contoh hasil benchmark yang menunjukkan waktu eksekusi dalam milidetik (ms) dan faktor speedup GPU terhadap CPU.
+
+| Ukuran Matriks | CPU (ms) | Residual (≈ Akurasi) | GPU (ms)| Residual (≈ Akurasi) |
+| 256×256 | ~35 | xxxxx | ~218 | xxxxx |
+| 512×512 | ~276 | xxxxx | ~500 | xxxxx |
+| 1024×1024 | xxxx | xxxxx | xxxx | xxxxx |
+| 2048×2048 | xxxxx | xxxxx | xxxx | xxxxx |
+| 4096×4096 | xxxxx | xxxxx | xxxx | xxxxx |
