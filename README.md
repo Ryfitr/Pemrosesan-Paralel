@@ -60,18 +60,6 @@ g++ -std=c++17 CPU_Sequential.cpp -o cpu_exec
 nvcc GPU_Parallel.cu -o gpu_exec -allow-unsupported-compiler
 ```
 
-### 2. Generate Matriks Uji
-
-```bash
-# Format: ./generator_exec <Ukuran_N>
-
-./generator_exec 256
-./generator_exec 512
-./generator_exec 1024
-./generator_exec 2048
-./generator_exec 4096
-```
-
 ### 2. Jalankan Test
 
 ```bash
