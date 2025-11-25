@@ -4,6 +4,7 @@
 #include <iomanip>
 #include <string>
 #include <cstdio>
+
 #include <cuda_runtime.h>
 #include <device_launch_parameters.h>
 
@@ -28,7 +29,10 @@ typedef float Scalar;
 static inline Scalar* read_matrix(int N, const string& filename) {
     Scalar* Aug = new Scalar[(size_t)N * (N + 1)];
     ifstream f(filename, ios::binary);
-    if (!f.is_open()) { cerr << "Error: gagal baca " << filename << endl; exit(1); }
+    if (!f.is_open()) {
+        cerr << "Error: gagal baca " << filename << endl;
+        exit(1);
+    }
     f.read(reinterpret_cast<char*>(Aug), (streamsize)((size_t)N * (N + 1) * sizeof(Scalar)));
     f.close();
     return Aug;
@@ -37,12 +41,16 @@ static inline Scalar* read_matrix(int N, const string& filename) {
 static inline Scalar* read_xtrue(int N, const string& filename) {
     Scalar* X = new Scalar[N];
     ifstream f(filename, ios::binary);
-    if (!f.is_open()) { cerr << "Error: gagal baca " << filename << endl; exit(1); }
+    if (!f.is_open()) {
+        cerr << "Error: gagal baca " << filename << endl;
+        exit(1);
+    }
     f.read(reinterpret_cast<char*>(X), (streamsize)((size_t)N * sizeof(Scalar)));
     f.close();
     return X;
 }
 
+// Menghitung norm error solusi: ||x_computed - Xtrue||_2
 static inline Scalar calc_residual(const Scalar* Aug, const Scalar* Xtrue, int N) {
     const long long stride = (long long)(N + 1);
     long double acc = 0.0L;
@@ -53,23 +61,32 @@ static inline Scalar calc_residual(const Scalar* Aug, const Scalar* Xtrue, int N
     return (Scalar)std::sqrt((double)acc);
 }
 
-__global__ void find_pivot_kernel(const Scalar* __restrict__ d_Aug, int N, int k, int* __restrict__ d_pivot_idx, Scalar eps) {
+__global__ void find_pivot_kernel(const Scalar* __restrict__ d_Aug,
+                                  int N, int k,
+                                  int* __restrict__ d_pivot_idx,
+                                  Scalar eps) {
     extern __shared__ unsigned char smem[];
     Scalar* s_val = (Scalar*)smem;
     int*    s_idx = (int*)&s_val[blockDim.x];
 
     const long long pitch = (long long)(N + 1);
-    Scalar best = 0.0;
+    Scalar best = 0.0f;
     int    best_i = -1;
 
+    // Tiap thread cek beberapa baris
     for (int i = k + threadIdx.x; i < N; i += blockDim.x) {
         Scalar v = fabsf(d_Aug[(long long)i * pitch + k]);
-        if (v > best) { best = v; best_i = i; }
+        if (v > best) {
+            best = v;
+            best_i = i;
+        }
     }
+
     s_val[threadIdx.x] = best;
     s_idx[threadIdx.x] = best_i;
     __syncthreads();
 
+    // Reduction maksimum di shared memory
     for (int stride = blockDim.x >> 1; stride > 0; stride >>= 1) {
         if (threadIdx.x < stride) {
             if (s_val[threadIdx.x + stride] > s_val[threadIdx.x]) {
@@ -90,30 +107,37 @@ __global__ void swap_rows_kernel(Scalar* __restrict__ d_Aug, int N, int r1, int 
     const long long pitch = (long long)(N + 1);
     const long long b1 = (long long)r1 * pitch;
     const long long b2 = (long long)r2 * pitch;
+
     for (int j = threadIdx.x; j <= N; j += blockDim.x) {
-        Scalar tmp = d_Aug[b1 + j];
-        d_Aug[b1 + j] = d_Aug[b2 + j];
-        d_Aug[b2 + j] = tmp;
+        Scalar tmp      = d_Aug[b1 + j];
+        d_Aug[b1 + j]   = d_Aug[b2 + j];
+        d_Aug[b2 + j]   = tmp;
     }
 }
 
-__global__ void normalize_pivot_row_kernel(Scalar* __restrict__ d_Aug, int N, int k, Scalar pivot_min){
+__global__ void normalize_pivot_row_kernel(Scalar* __restrict__ d_Aug, int N, int k, Scalar pivot_min) {
     const long long pitch = (long long)(N + 1);
     const long long base  = (long long)k * pitch;
     Scalar pivot = d_Aug[base + k];
     if (fabsf(pivot) < pivot_min) return;
-    for (int j = k + threadIdx.x; j <= N; j += blockDim.x) d_Aug[base + j] /= pivot;
+
+    for (int j = k + threadIdx.x; j <= N; j += blockDim.x) {
+        d_Aug[base + j] /= pivot;
+    }
 }
 
 __global__ void eliminate_rows_kernel(Scalar* __restrict__ d_Aug, int N, int k) {
     int row = blockIdx.x;
     if (row == k || row >= N) return;
+
     const long long pitch   = (long long)(N + 1);
     const long long baseRow = (long long)row * pitch;
     const long long baseK   = (long long)k   * pitch;
 
     __shared__ Scalar factor;
-    if (threadIdx.x == 0) factor = d_Aug[baseRow + k];
+    if (threadIdx.x == 0) {
+        factor = d_Aug[baseRow + k];
+    }
     __syncthreads();
 
     for (int j = k + threadIdx.x; j <= N; j += blockDim.x) {
@@ -129,20 +153,28 @@ static inline bool gauss_jordan_gpu(Scalar* d_Aug, int N, cudaStream_t stream = 
 
     for (int k = 0; k < N; ++k) {
         size_t smem = (size_t)THREADS_PIVOT * (sizeof(Scalar) + sizeof(int));
+
+        // Cari pivot di GPU
         find_pivot_kernel<<<1, THREADS_PIVOT, smem, stream>>>(d_Aug, N, k, d_pivot, (Scalar)1.0e-6f);
         CHECK_CUDA_ERROR(cudaGetLastError());
 
         int h_pivot = -1;
         CHECK_CUDA_ERROR(cudaMemcpyAsync(&h_pivot, d_pivot, sizeof(int), cudaMemcpyDeviceToHost, stream));
         CHECK_CUDA_ERROR(cudaStreamSynchronize(stream));
-        if (h_pivot < 0) { cudaFree(d_pivot); return false; }
+        if (h_pivot < 0) {
+            cudaFree(d_pivot);
+            return false;
+        }
 
+        // Tukar baris k dengan baris pivot
         swap_rows_kernel<<<1, THREADS_COL, 0, stream>>>(d_Aug, N, k, h_pivot);
         CHECK_CUDA_ERROR(cudaGetLastError());
 
+        // Normalisasi pivot row
         normalize_pivot_row_kernel<<<1, THREADS_COL, 0, stream>>>(d_Aug, N, k, (Scalar)1.0e-20f);
         CHECK_CUDA_ERROR(cudaGetLastError());
 
+        // Eliminasi baris lain
         eliminate_rows_kernel<<<gridRow, blockCol, 0, stream>>>(d_Aug, N, k);
         CHECK_CUDA_ERROR(cudaGetLastError());
     }
@@ -151,71 +183,97 @@ static inline bool gauss_jordan_gpu(Scalar* d_Aug, int N, cudaStream_t stream = 
     return true;
 }
 
-
 int main(int argc, char* argv[]) {
-    if (argc < 2) {
-        cerr << "Usage: " << argv[0] << " <N>\n";
+    if (argc < 3) {
+        cerr << "Usage: " << argv[0] << " <N> <ID>\n";
         return 1;
     }
-    int N = atoi(argv[1]);
 
-    const string mx = "matrix_" + to_string(N) + ".bin";
-    const string xt = "xtrue_"  + to_string(N) + ".bin";
+    int N  = atoi(argv[1]);
+    int ID = atoi(argv[2]);
+
+    string suffix = to_string(N) + "_" + to_string(ID);
+    const string mx = "matrix_" + suffix + ".bin";
+    const string xt = "xtrue_"  + suffix + ".bin";
 
     Scalar* Xtrue = read_xtrue(N, xt);
+
     Scalar* d_Aug = nullptr;
     size_t bytesAug = (size_t)N * (N + 1) * sizeof(Scalar);
     CHECK_CUDA_ERROR(cudaMalloc((void**)&d_Aug, bytesAug));
 
-    int runs = 5;
-    double total_ms = 0.0;
-    Scalar last_res = 0.0;
+    // Satu run saja per matriks
+    Scalar* h_Aug = read_matrix(N, mx);
+    CHECK_CUDA_ERROR(cudaMemcpy(d_Aug, h_Aug, bytesAug, cudaMemcpyHostToDevice));
 
-    for (int r = 0; r < runs; ++r) {
-        Scalar* h_Aug = read_matrix(N, mx);
-        CHECK_CUDA_ERROR(cudaMemcpy(d_Aug, h_Aug, bytesAug, cudaMemcpyHostToDevice));
+    cudaEvent_t start, stop;
+    CHECK_CUDA_ERROR(cudaEventCreate(&start));
+    CHECK_CUDA_ERROR(cudaEventCreate(&stop));
+    CHECK_CUDA_ERROR(cudaEventRecord(start));
 
-        cudaEvent_t start, stop;
-        CHECK_CUDA_ERROR(cudaEventCreate(&start));
-        CHECK_CUDA_ERROR(cudaEventCreate(&stop));
-        CHECK_CUDA_ERROR(cudaEventRecord(start));
-
-        bool ok = gauss_jordan_gpu(d_Aug, N);
-        if (!ok) cerr << "Peringatan: singular/ill-conditioned terdeteksi.\n";
-
-        CHECK_CUDA_ERROR(cudaEventRecord(stop));
-        CHECK_CUDA_ERROR(cudaEventSynchronize(stop));
-        float ms = 0.0f;
-        CHECK_CUDA_ERROR(cudaEventElapsedTime(&ms, start, stop));
-        total_ms += ms;
-
-        CHECK_CUDA_ERROR(cudaMemcpy(h_Aug, d_Aug, bytesAug, cudaMemcpyDeviceToHost));
-        last_res = calc_residual(h_Aug, Xtrue, N);
-
-        if (N == 256 && r == 0) {
-            cout << "\n--- HASIL VEKTOR SOLUSI X (GPU N=256) ---\n";
-            cout.setf(ios::fixed); cout << setprecision(12);
-            for (int i = 0; i < N; ++i) {
-                if (i < 5 || i >= N - 5) {
-                    cout << "X[" << i << "] = " << h_Aug[(size_t)i*(N+1) + N] << "\n";
-                } else if (i == 5) {
-                    cout << "...\n";
-                }
-            }
-            cout << "Residual Actual: " << last_res << "\n";
-            cout << "---------------------------------------\n";
-        }
-
-        delete[] h_Aug;
-        CHECK_CUDA_ERROR(cudaEventDestroy(start));
-        CHECK_CUDA_ERROR(cudaEventDestroy(stop));
+    bool ok = gauss_jordan_gpu(d_Aug, N);
+    if (!ok) {
+        cerr << "Peringatan: singular/ill-conditioned terdeteksi.\n";
     }
 
-    CHECK_CUDA_ERROR(cudaFree(d_Aug));
-    delete[] Xtrue;
+    CHECK_CUDA_ERROR(cudaEventRecord(stop));
+    CHECK_CUDA_ERROR(cudaEventSynchronize(stop));
+    float ms = 0.0f;
+    CHECK_CUDA_ERROR(cudaEventElapsedTime(&ms, start, stop));
 
-    double avg = total_ms / runs;
-    cout.setf(ios::fixed); cout << setprecision(4);
-    cout << N << "," << avg << "," << last_res << "\n";
+    CHECK_CUDA_ERROR(cudaMemcpy(h_Aug, d_Aug, bytesAug, cudaMemcpyDeviceToHost));
+    Scalar last_res = calc_residual(h_Aug, Xtrue, N);
+
+    // Output detail solusi ke terminal (hanya N=256, ID=1)
+    if (N == 256 && ID == 1) {
+        cout << "\n--- HASIL VEKTOR SOLUSI X (GPU N=" << N << ", ID=" << ID << ") ---\n";
+        cout.setf(ios::fixed);
+        cout << setprecision(12);
+        for (int i = 0; i < N; ++i) {
+            if (i < 5 || i >= N - 5) {
+                cout << "X[" << i << "] = " << h_Aug[(size_t)i * (N + 1) + N] << "\n";
+            } else if (i == 5) {
+                cout << "...\n";
+            }
+        }
+        cout << "Residual Actual: " << last_res << "\n";
+        cout << "---------------------------------------\n";
+    }
+
+    delete[] h_Aug;
+    delete[] Xtrue;
+    CHECK_CUDA_ERROR(cudaEventDestroy(start));
+    CHECK_CUDA_ERROR(cudaEventDestroy(stop));
+    CHECK_CUDA_ERROR(cudaFree(d_Aug));
+
+    // Cetak baris data ke terminal
+    cout.setf(ios::fixed);
+    cout << setprecision(4);
+    cout << N << "," << ID << "," << ms << "," << last_res << "\n";
+
+    // Tulis juga ke file CSV
+    string csv_name = "gpu_results.csv";
+    ios_base::openmode mode;
+
+    // Untuk N=256 & ID=1, overwrite dan tulis header
+    if (N == 256 && ID == 1) {
+        mode = ios::out;
+    } else {
+        mode = ios::out | ios::app;
+    }
+
+    ofstream csv(csv_name, mode);
+    if (csv.is_open()) {
+        if (N == 256 && ID == 1) {
+            csv << "Ukuran,ID,Time,Residual\n";
+        }
+        csv.setf(ios::fixed);
+        csv << setprecision(4);
+        csv << N << "," << ID << "," << ms << "," << last_res << "\n";
+        csv.close();
+    } else {
+        cerr << "Peringatan: tidak bisa membuka " << csv_name << " untuk menulis.\n";
+    }
+
     return 0;
 }

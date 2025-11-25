@@ -1,0 +1,16 @@
+# Binaries
+*.exe
+
+# Generated data
+*.bin
+
+# Results
+cpu_results.csv
+gpu_results.csv
+
+# Misc
+*.obj
+*.o
+*.log
+*.pdb
+*.ilk
