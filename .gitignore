@@ -1,16 +1,19 @@
-# Binaries
+# executables
 *.exe
 
-# Generated data
+# generated binary matrices
 *.bin
 
-# Results
-cpu_results.csv
-gpu_results.csv
+# generated CSV output
+*.csv
 
-# Misc
-*.obj
+# object files (if ada)
 *.o
-*.log
+
+# visual studio intermediate
+*.suo
 *.pdb
-*.ilk
+*.ipch
+
+# backup
+*.tmp

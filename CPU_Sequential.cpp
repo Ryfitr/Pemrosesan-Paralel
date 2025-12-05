@@ -110,11 +110,17 @@ int main(int argc, char *argv[]) {
     double ms = (double)(end - start) / CLOCKS_PER_SEC * 1000.0;
     Scalar final_residual = calculate_residual(Aug, X_true, N);
 
-    // Output detail solusi ke terminal (hanya N=256, ID=1)
-    if (N == 256 && ID == 1) {
-        cout << "\n--- HASIL VEKTOR SOLUSI X (CPU N=" << N << ", ID=" << ID << ") ---\n";
+    // ============================
+    // CONTOH PENYELESAIAN (CPU)
+    // N=256, ID=1 dan ID=2
+    // ============================
+    if (N == 256 && (ID == 1 || ID == 2)) {
+        cout << "\n=== CONTOH PENYELESAIAN CPU (N=" << N << ", ID=" << ID << ") ===\n";
+
+        // Contoh vektor solusi X (beberapa elemen awal & akhir)
         cout.setf(ios::fixed);
         cout << setprecision(12);
+        cout << "\n-- Contoh elemen vektor solusi X --\n";
         for (int i = 0; i < N; ++i) {
             if (i < 5 || i >= N - 5) {
                 cout << "X[" << i << "] = " << Aug[(size_t)i * (N + 1) + N] << "\n";
@@ -122,19 +128,66 @@ int main(int argc, char *argv[]) {
                 cout << "...\n";
             }
         }
-        cout << "Residual Actual: " << final_residual << "\n";
-        cout << "---------------------------------------\n";
+
+        // Contoh sebagian matriks hasil eliminasi (augmented matrix)
+        cout << "\n-- Contoh sebagian matriks augmented hasil eliminasi --\n";
+        cout << "(5 baris pertama, 5 kolom pertama, dan kolom terakhir [b])\n\n";
+        cout << setprecision(6);
+        for (int i = 0; i < 5; ++i) {
+            cout << "Row " << setw(2) << i << ": ";
+            for (int j = 0; j < 5; ++j) {
+                cout << setw(10) << Aug[(size_t)i * (N + 1) + j] << " ";
+            }
+            cout << " | " << setw(10) << Aug[(size_t)i * (N + 1) + N] << "\n";
+        }
+        cout << "==============================================\n";
+
+        // Ekspor matriks augmented penuh ke CSV pembuktian
+        string mat_csv = "cpu_matrix_256.csv";
+        ios_base::openmode m_mode;
+
+        if (ID == 1) {
+            // Overwrite dan tulis header untuk ID=1
+            m_mode = ios::out;
+        } else {
+            // Append untuk ID=2
+            m_mode = ios::out | ios::app;
+        }
+
+        ofstream mfile(mat_csv, m_mode);
+        if (mfile.is_open()) {
+            mfile.setf(ios::fixed);
+            mfile << setprecision(6);
+
+            if (ID == 1) {
+                mfile << "# CPU augmented matrix after Gauss-Jordan, N=256, ID=1\n";
+            } else {
+                mfile << "\n# CPU augmented matrix after Gauss-Jordan, N=256, ID=2\n";
+            }
+
+            for (int i = 0; i < N; ++i) {
+                for (int j = 0; j < N + 1; ++j) {
+                    mfile << Aug[(size_t)i * (N + 1) + j];
+                    if (j < N) mfile << ",";
+                }
+                mfile << "\n";
+            }
+            mfile.close();
+        } else {
+            cerr << "Peringatan: tidak bisa membuka " << mat_csv << " untuk menulis.\n";
+        }
     }
 
+    // Setelah semua selesai, baru bebaskan memori
     delete[] Aug;
     delete[] X_true;
 
-    // Cetak baris data ke terminal
+    // Cetak baris data ke terminal (untuk dicek cepat)
     cout.setf(ios::fixed);
     cout << setprecision(4);
     cout << N << "," << ID << "," << ms << "," << final_residual << "\n";
 
-    // Tulis juga ke file CSV
+    // Tulis juga ke file CSV ringkasan waktu & residual
     string csv_name = "cpu_results.csv";
     ios_base::openmode mode;
 
